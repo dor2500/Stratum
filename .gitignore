@@ -1,0 +1,40 @@
+# Build output
+bin/
+obj/
+out/
+artifacts/
+publish/
+*.user
+*.suo
+.vs/
+.idea/
+*.DotSettings.user
+
+# Native build output
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+src/Stratum.ShellExt/build/
+
+# Packaging output and signing material (never commit certificates or keys)
+*.msix
+*.appx
+*.pfx
+*.cer
+*.snk
+packaging/out/
+
+# Test output
+TestResults/
+*.trx
+coverage*/
+
+# OS / editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.tmp
+*.log
