@@ -1,0 +1,4 @@
+LIBRARY "Stratum.ShellExt.dll"
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow   PRIVATE
