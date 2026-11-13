@@ -35,6 +35,40 @@ public sealed partial class MainWindow
             FileList.SelectedItems.Remove(parent);
     }
 
+    private void InvertSelection_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = FileList.SelectedItems.OfType<ItemRow>().ToHashSet();
+        FileList.SelectedItems.Clear();
+        foreach (var row in FileList.Items.OfType<ItemRow>())
+            if (row.Kind != RowKind.Parent && !selected.Contains(row)) FileList.SelectedItems.Add(row);
+    }
+
+    private void CopyNames_Click(object sender, RoutedEventArgs e)
+    {
+        var rows = SelectedRows();
+        if (rows.Count == 0)
+        {
+            ShowNotice("Select the items whose names you want to copy.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        var names = rows.Select(r => r.DiskPath ?? (_reader!.ArchivePath + "\\" + r.Item!.FullPath.Replace('/', '\\')));
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(string.Join(Environment.NewLine, names));
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        ShowNotice(rows.Count == 1 ? "Copied the full name." : $"Copied {rows.Count} full names.", InfoBarSeverity.Success);
+    }
+
+    /// <summary>Extracts the whole archive into a folder named after it, next to it, without asking.</summary>
+    private void ExtractNow_Click(object sender, RoutedEventArgs e) => Run(async () =>
+    {
+        if (Busy || !await EnsureArchiveAsync()) return;
+        var archive = _reader!.ArchivePath;
+        var destination = Path.Combine(Path.GetDirectoryName(archive)!, ArchiveBaseName(archive));
+        if (await ExtractAsync(destination, null, OverwriteMode.Rename))
+            ShowNotice($"Extracted to {destination}", InfoBarSeverity.Success);
+    });
+
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
 
     // ---------- Commands ----------

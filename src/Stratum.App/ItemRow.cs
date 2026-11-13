@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using Stratum.Core;
 
 namespace Stratum.Shell;
@@ -37,6 +38,14 @@ public sealed class ItemRow
     public string Glyph { get; private init; } = "";
     public Visibility LockVisibility { get; private init; } = Visibility.Collapsed;
     public double IconOpacity => IsDirectory ? 1.0 : 0.75;
+
+    /// <summary>The Windows icon for this item, as Explorer shows it.</summary>
+    public ImageSource? Icon => Kind switch
+    {
+        RowKind.Drive => ShellIcons.ForDrive(DiskPath!),
+        _ when IsDirectory => ShellIcons.ForFolder(),
+        _ => ShellIcons.ForFile(Name),
+    };
 
     public static ItemRow Parent() => new()
     {

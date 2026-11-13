@@ -263,6 +263,13 @@ public sealed partial class MainWindow : Window
         var fileRows = sorted.Where(r => !r.IsDirectory).ToList();
         TotalText.Text = $"Total {Plural(folderCount, "folder")} and {fileRows.Sum(r => r.Size):N0} bytes in {Plural(fileRows.Count, "file")}";
 
+        foreach (var header in HeaderGrid.Children.OfType<HyperlinkButton>())
+        {
+            var tag = (string)header.Tag;
+            var label = tag switch { "size" => "Size", "type" => "Type", "modified" => "Modified", "crc" => "CRC32", _ => "Name" };
+            header.Content = tag == _sortKey ? $"{label} {(_sortDescending ? "\u25BE" : "\u25B4")}" : label;
+        }
+
         UpdateCommands();
         UpdateStatus();
     }

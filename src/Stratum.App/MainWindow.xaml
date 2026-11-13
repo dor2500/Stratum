@@ -13,12 +13,20 @@
     <Grid x:Name="Root" Background="Transparent" AllowDrop="True"
           DragOver="Root_DragOver" DragLeave="Root_DragLeave" Drop="Root_Drop" Loaded="Root_Loaded">
         <Grid.Resources>
+            <LinearGradientBrush x:Key="GreenFill" StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#4CCB6A" Offset="0" /><GradientStop Color="#1E9A44" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="BlueFill" StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#4FA3FF" Offset="0" /><GradientStop Color="#2467D8" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="SkyFill" StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#A8D8FF" Offset="0" /><GradientStop Color="#5AA9F5" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="RedFill" StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#F4776F" Offset="0" /><GradientStop Color="#D63C3A" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="AmberFill" StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#FFC24A" Offset="0" /><GradientStop Color="#EE8F12" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="VioletFill" StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#9B7BF7" Offset="0" /><GradientStop Color="#6A43D6" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="SteelFill" StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#A9B4C1" Offset="0" /><GradientStop Color="#6B7785" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="PaperFill" StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#FFFFFF" Offset="0" /><GradientStop Color="#E4EBF5" Offset="1" /></LinearGradientBrush>
             <!-- Large "icon over label" toolbar button, the classic archiver layout. -->
             <Style x:Key="ToolButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Width" Value="88" />
-                <Setter Property="Height" Value="68" />
+                <Setter Property="Height" Value="74" />
                 <Setter Property="Padding" Value="4" />
                 <Setter Property="CornerRadius" Value="6" />
             </Style>
@@ -64,9 +72,12 @@
                     <MenuFlyoutItem.KeyboardAccelerators><KeyboardAccelerator Modifiers="Control" Key="W" /></MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
                 <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="Copy full names to clipboard" Click="CopyNames_Click" />
+                <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="Select all" Click="SelectAll_Click">
                     <MenuFlyoutItem.KeyboardAccelerators><KeyboardAccelerator Modifiers="Control" Key="A" /></MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
+                <MenuFlyoutItem Text="Invert selection" Click="InvertSelection_Click" />
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="Exit" Click="Exit_Click" />
             </MenuBarItem>
@@ -85,6 +96,11 @@
                 </MenuFlyoutItem>
                 <MenuFlyoutItem Text="Delete files" Click="Delete_Click" />
                 <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="Extract without confirmation" Click="ExtractNow_Click">
+                    <MenuFlyoutItem.KeyboardAccelerators><KeyboardAccelerator Modifiers="Menu" Key="W" /></MenuFlyoutItem.KeyboardAccelerators>
+                </MenuFlyoutItem>
+            </MenuBarItem>
+            <MenuBarItem Title="Tools">
                 <MenuFlyoutItem Text="Find files" Click="Find_Click">
                     <MenuFlyoutItem.KeyboardAccelerators><KeyboardAccelerator Key="F3" /></MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
@@ -93,7 +109,7 @@
                 </MenuFlyoutItem>
             </MenuBarItem>
             <MenuBarItem Title="Options">
-                <MenuFlyoutSubItem Text="Theme">
+                <MenuFlyoutSubItem Text="Themes">
                     <RadioMenuFlyoutItem x:Name="ThemeSystem" Text="Use system setting" GroupName="Theme" Tag="System" Click="Theme_Click" />
                     <RadioMenuFlyoutItem x:Name="ThemeLight" Text="Light" GroupName="Theme" Tag="Light" Click="Theme_Click" />
                     <RadioMenuFlyoutItem x:Name="ThemeDark" Text="Dark" GroupName="Theme" Tag="Dark" Click="Theme_Click" />
@@ -105,48 +121,91 @@
             </MenuBarItem>
         </MenuBar>
 
-        <!-- Toolbar -->
+        <!-- Toolbar: large full-colour icons over a label. The artwork is Stratum's own. -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="2" Margin="8,2,8,6">
             <Button x:Name="AddButton" Style="{StaticResource ToolButton}" Click="Add_Click" ToolTipService.ToolTip="Add files to archive (Alt+A)">
                 <StackPanel>
-                    <FontIcon Glyph="&#xE8F4;" FontSize="26" Foreground="#2EA043" />
+                    <Viewbox Width="36" Height="36"><Canvas Width="32" Height="32">
+                        <Rectangle Canvas.Left="3" Canvas.Top="4" Width="21" Height="6.5" RadiusX="2" RadiusY="2" Fill="{StaticResource AmberFill}" />
+                        <Rectangle Canvas.Left="3" Canvas.Top="12" Width="21" Height="6.5" RadiusX="2" RadiusY="2" Fill="{StaticResource BlueFill}" />
+                        <Rectangle Canvas.Left="3" Canvas.Top="20" Width="21" Height="6.5" RadiusX="2" RadiusY="2" Fill="{StaticResource VioletFill}" />
+                        <Rectangle Canvas.Left="6" Canvas.Top="6.2" Width="5" Height="2" RadiusX="1" RadiusY="1" Fill="#B3FFFFFF" />
+                        <Rectangle Canvas.Left="6" Canvas.Top="14.2" Width="5" Height="2" RadiusX="1" RadiusY="1" Fill="#B3FFFFFF" />
+                        <Rectangle Canvas.Left="6" Canvas.Top="22.2" Width="5" Height="2" RadiusX="1" RadiusY="1" Fill="#B3FFFFFF" />
+                        <Ellipse Canvas.Left="16.5" Canvas.Top="16.5" Width="14.5" Height="14.5" Fill="{StaticResource GreenFill}" Stroke="White" StrokeThickness="1.4" />
+                        <Rectangle Canvas.Left="22.7" Canvas.Top="19.8" Width="2.1" Height="8" RadiusX="1" RadiusY="1" Fill="White" />
+                        <Rectangle Canvas.Left="19.75" Canvas.Top="22.7" Width="8" Height="2.1" RadiusX="1" RadiusY="1" Fill="White" />
+                    </Canvas></Viewbox>
                     <TextBlock Text="Add" Style="{StaticResource ToolLabel}" />
                 </StackPanel>
             </Button>
             <Button x:Name="ExtractButton" Style="{StaticResource ToolButton}" Click="Extract_Click" ToolTipService.ToolTip="Extract to a specified folder (Alt+E)">
                 <StackPanel>
-                    <FontIcon Glyph="&#xE8DA;" FontSize="26" Foreground="#3B82F6" />
+                    <Viewbox Width="36" Height="36"><Canvas Width="32" Height="32">
+                        <Path Fill="{StaticResource BlueFill}" Data="M2,8 a2,2 0 0 1 2,-2 h7.5 l3,3 h13.5 a2,2 0 0 1 2,2 v14 a2,2 0 0 1 -2,2 h-24 a2,2 0 0 1 -2,-2 z" />
+                        <Rectangle Canvas.Left="2" Canvas.Top="12" Width="28" Height="15" RadiusX="2" RadiusY="2" Fill="{StaticResource SkyFill}" />
+                        <Ellipse Canvas.Left="16.5" Canvas.Top="16.5" Width="14.5" Height="14.5" Fill="{StaticResource AmberFill}" Stroke="White" StrokeThickness="1.4" />
+                        <Path Stroke="White" StrokeThickness="2.1" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M20.2,23.75 h7 M24.4,20.6 l3,3.15 l-3,3.15" />
+                    </Canvas></Viewbox>
                     <TextBlock Text="Extract To" Style="{StaticResource ToolLabel}" />
                 </StackPanel>
             </Button>
             <Button x:Name="TestButton" Style="{StaticResource ToolButton}" Click="Test_Click" ToolTipService.ToolTip="Test archived files (Alt+T)">
                 <StackPanel>
-                    <FontIcon Glyph="&#xE9D5;" FontSize="26" Foreground="#D9822B" />
+                    <Viewbox Width="36" Height="36"><Canvas Width="32" Height="32">
+                        <Rectangle Canvas.Left="5" Canvas.Top="5" Width="22" Height="25" RadiusX="3" RadiusY="3" Fill="{StaticResource RedFill}" />
+                        <Rectangle Canvas.Left="8" Canvas.Top="9" Width="16" Height="18" RadiusX="1.5" RadiusY="1.5" Fill="White" />
+                        <Rectangle Canvas.Left="11.5" Canvas.Top="2.5" Width="9" Height="6" RadiusX="2" RadiusY="2" Fill="{StaticResource SteelFill}" />
+                        <Path Stroke="#1FA34A" StrokeThickness="2.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M11.5,18.5 l3.2,3.2 l6,-7" />
+                    </Canvas></Viewbox>
                     <TextBlock Text="Test" Style="{StaticResource ToolLabel}" />
                 </StackPanel>
             </Button>
             <Button x:Name="ViewButton" Style="{StaticResource ToolButton}" Click="View_Click" ToolTipService.ToolTip="View file (Alt+V)">
                 <StackPanel>
-                    <FontIcon Glyph="&#xE890;" FontSize="26" Foreground="#8B5CF6" />
+                    <Viewbox Width="36" Height="36"><Canvas Width="32" Height="32">
+                        <Path Fill="{StaticResource PaperFill}" Stroke="#8FA3BD" StrokeThickness="1" Data="M6,4 a2,2 0 0 1 2,-2 h10 l7,7 v17 a2,2 0 0 1 -2,2 h-15 a2,2 0 0 1 -2,-2 z" />
+                        <Path Fill="#C9D6E8" Data="M18,2 l7,7 h-5 a2,2 0 0 1 -2,-2 z" />
+                        <Rectangle Canvas.Left="9.5" Canvas.Top="13" Width="11" Height="1.8" RadiusX="0.9" RadiusY="0.9" Fill="#9DB0C8" />
+                        <Rectangle Canvas.Left="9.5" Canvas.Top="17" Width="8" Height="1.8" RadiusX="0.9" RadiusY="0.9" Fill="#9DB0C8" />
+                        <Ellipse Canvas.Left="14.5" Canvas.Top="14.5" Width="12" Height="12" Fill="#99D8C7FF" Stroke="{StaticResource VioletFill}" StrokeThickness="2.4" />
+                        <Path Stroke="{StaticResource VioletFill}" StrokeThickness="3.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M25,25 l4.3,4.3" />
+                    </Canvas></Viewbox>
                     <TextBlock Text="View" Style="{StaticResource ToolLabel}" />
                 </StackPanel>
             </Button>
             <Button x:Name="DeleteButton" Style="{StaticResource ToolButton}" Click="Delete_Click" ToolTipService.ToolTip="Delete files (Del)">
                 <StackPanel>
-                    <FontIcon Glyph="&#xE74D;" FontSize="26" Foreground="#E5484D" />
+                    <Viewbox Width="36" Height="36"><Canvas Width="32" Height="32">
+                        <Rectangle Canvas.Left="12" Canvas.Top="2.5" Width="8" Height="4.5" RadiusX="1.5" RadiusY="1.5" Fill="{StaticResource SteelFill}" />
+                        <Rectangle Canvas.Left="4.5" Canvas.Top="5.5" Width="23" Height="4" RadiusX="2" RadiusY="2" Fill="{StaticResource SteelFill}" />
+                        <Path Fill="{StaticResource RedFill}" Data="M7,11 h18 l-1.5,17 a2.2,2.2 0 0 1 -2.2,2 h-10.6 a2.2,2.2 0 0 1 -2.2,-2 z" />
+                        <Rectangle Canvas.Left="11.6" Canvas.Top="14" Width="2" Height="12" RadiusX="1" RadiusY="1" Fill="#CCFFFFFF" />
+                        <Rectangle Canvas.Left="15" Canvas.Top="14" Width="2" Height="12" RadiusX="1" RadiusY="1" Fill="#CCFFFFFF" />
+                        <Rectangle Canvas.Left="18.4" Canvas.Top="14" Width="2" Height="12" RadiusX="1" RadiusY="1" Fill="#CCFFFFFF" />
+                    </Canvas></Viewbox>
                     <TextBlock Text="Delete" Style="{StaticResource ToolLabel}" />
                 </StackPanel>
             </Button>
             <Border Width="1" Margin="6,12" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
             <Button x:Name="FindButton" Style="{StaticResource ToolButton}" Click="Find_Click" ToolTipService.ToolTip="Find files (F3)">
                 <StackPanel>
-                    <FontIcon Glyph="&#xE721;" FontSize="26" Foreground="#0EA5A4" />
+                    <Viewbox Width="36" Height="36"><Canvas Width="32" Height="32">
+                        <Path Stroke="{StaticResource SteelFill}" StrokeThickness="4.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M20.5,20.5 l8,8" />
+                        <Ellipse Canvas.Left="3" Canvas.Top="3" Width="21" Height="21" Fill="{StaticResource SkyFill}" Stroke="{StaticResource BlueFill}" StrokeThickness="2.8" />
+                        <Path Stroke="#B3FFFFFF" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M8.5,13 a5.5,5.5 0 0 1 5,-5" />
+                    </Canvas></Viewbox>
                     <TextBlock Text="Find" Style="{StaticResource ToolLabel}" />
                 </StackPanel>
             </Button>
             <Button x:Name="InfoButton" Style="{StaticResource ToolButton}" Click="Info_Click" ToolTipService.ToolTip="Show archive information (Alt+I)">
                 <StackPanel>
-                    <FontIcon Glyph="&#xE946;" FontSize="26" Foreground="#3B82F6" />
+                    <Viewbox Width="36" Height="36"><Canvas Width="32" Height="32">
+                        <Ellipse Canvas.Left="2.5" Canvas.Top="2.5" Width="27" Height="27" Fill="{StaticResource BlueFill}" />
+                        <Ellipse Canvas.Left="5" Canvas.Top="5" Width="22" Height="22" Stroke="#66FFFFFF" StrokeThickness="1.2" />
+                        <Ellipse Canvas.Left="14" Canvas.Top="8" Width="4" Height="4" Fill="White" />
+                        <Rectangle Canvas.Left="14" Canvas.Top="14" Width="4" Height="10.5" RadiusX="1.6" RadiusY="1.6" Fill="White" />
+                    </Canvas></Viewbox>
                     <TextBlock Text="Info" Style="{StaticResource ToolLabel}" />
                 </StackPanel>
             </Button>
@@ -177,7 +236,7 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <Grid Padding="24,4,24,4" ColumnSpacing="12"
+                    <Grid x:Name="HeaderGrid" Padding="24,4,24,4" ColumnSpacing="12"
                           BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="24" />
@@ -227,8 +286,7 @@
                                         <ColumnDefinition Width="150" />
                                         <ColumnDefinition Width="90" />
                                     </Grid.ColumnDefinitions>
-                                    <FontIcon Glyph="{x:Bind Glyph}" FontSize="16" Opacity="{x:Bind IconOpacity}"
-                                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <Image Source="{x:Bind Icon}" Width="20" Height="20" />
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                         <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
                                         <FontIcon Glyph="&#xE72E;" FontSize="11" Visibility="{x:Bind LockVisibility}"
