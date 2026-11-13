@@ -6,9 +6,14 @@ using Microsoft.UI.Xaml.Input;
 using Stratum.Core;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
+using VirtualKey = Windows.System.VirtualKey;
 
 namespace Stratum.Shell;
 
+/// <summary>
+/// The main window. Like a classic archiver it is always showing a file list: either a folder
+/// on disk, or the inside of an archive. ".." walks up, and out of an archive into its folder.
+/// </summary>
 public sealed partial class MainWindow : Window
 {
     private readonly StartupRequest _startup;
@@ -19,7 +24,9 @@ public sealed partial class MainWindow : Window
 
     private ArchiveReader? _reader;
     private ArchiveTree? _tree;
-    private string _folder = "";
+    private string? _password;
+    private string _folder = "";       // folder inside the open archive
+    private string _diskFolder = "";   // folder on disk; "" lists the drives
     private string _sortKey = "name";
     private bool _sortDescending;
     private bool _internalDrag;
@@ -34,13 +41,14 @@ public sealed partial class MainWindow : Window
         SetTitleBar(AppTitleBar);
         var icon = Path.Combine(AppContext.BaseDirectory, "Assets", "Stratum.ico");
         if (File.Exists(icon)) AppWindow.SetIcon(icon);
+
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var scale = GetDpiForWindow(hwnd) / 96.0;
-        AppWindow.Resize(new Windows.Graphics.SizeInt32((int)(1100 * scale), (int)(720 * scale)));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32((int)(1040 * scale), (int)(700 * scale)));
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
-            presenter.PreferredMinimumWidth = (int)(760 * scale);
-            presenter.PreferredMinimumHeight = (int)(480 * scale);
+            presenter.PreferredMinimumWidth = (int)(820 * scale);
+            presenter.PreferredMinimumHeight = (int)(460 * scale);
         }
 
         _dialogs = new Dialogs(Root, hwnd);
@@ -48,6 +56,11 @@ public sealed partial class MainWindow : Window
         _noticeTimer.Interval = TimeSpan.FromSeconds(5);
         _noticeTimer.IsRepeating = false;
         _noticeTimer.Tick += (_, _) => Notice.IsOpen = false;
+
+        var start = _settings.LastFolder;
+        _diskFolder = start is not null && Directory.Exists(start)
+            ? start
+            : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
         ApplyTheme(_settings.Theme);
         Closed += (_, _) => CleanTemp();
@@ -57,6 +70,7 @@ public sealed partial class MainWindow : Window
     private static extern uint GetDpiForWindow(nint hwnd);
 
     private bool Busy => _job is not null;
+    private bool InArchive => _reader is not null && _tree is not null;
 
     /// <summary>ZIP, 7Z and TAR can be changed in place; RAR, split and other formats are read-only.</summary>
     private bool CanModify => _reader is not null && !Busy &&
@@ -68,12 +82,14 @@ public sealed partial class MainWindow : Window
     private void Root_Loaded(object sender, RoutedEventArgs e)
     {
         ExplorerToggle.IsChecked = ShellIntegration.IsRegistered;
+        Refresh();
         Run(async () =>
         {
             switch (_startup.Mode)
             {
                 case StartupMode.Open:
-                    await OpenArchiveAsync(_startup.Paths[0]);
+                    if (Directory.Exists(_startup.Paths[0])) ShowDiskFolder(_startup.Paths[0]);
+                    else await OpenArchiveAsync(_startup.Paths[0]);
                     break;
                 case StartupMode.Add:
                     await CreateArchiveAsync(_startup.Paths);
@@ -122,9 +138,10 @@ public sealed partial class MainWindow : Window
         }
 
         _password = password;
-        SetReader(reader, resetFolder: true);
-        _settings.LastFolder = Path.GetDirectoryName(reader.ArchivePath);
+        _diskFolder = Path.GetDirectoryName(reader.ArchivePath) ?? "";
+        _settings.LastFolder = _diskFolder;
         _settings.Save();
+        SetReader(reader, resetFolder: true);
         return true;
     }
 
@@ -134,6 +151,32 @@ public sealed partial class MainWindow : Window
         _tree = new ArchiveTree(reader.Entries);
         if (resetFolder || !_tree.FolderExists(_folder)) _folder = "";
         FilterBox.Text = "";
+        Refresh();
+    }
+
+    private void CloseArchive()
+    {
+        _reader = null;
+        _tree = null;
+        _password = null;
+        _folder = "";
+        FilterBox.Text = "";
+        Refresh();
+    }
+
+    private void ShowDiskFolder(string folder)
+    {
+        _reader = null;
+        _tree = null;
+        _password = null;
+        _folder = "";
+        _diskFolder = folder;
+        FilterBox.Text = "";
+        if (folder.Length > 0)
+        {
+            _settings.LastFolder = folder;
+            _settings.Save();
+        }
         Refresh();
     }
 
@@ -150,107 +193,168 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private string? _password;
-
     private void Refresh()
     {
-        var open = _reader is not null && _tree is not null;
-        EmptyState.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
-        Browser.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        NavBar.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        UpdateCommands();
+        var rows = new List<ItemRow>();
+        string? problem = null;
 
-        if (!open)
+        if (InArchive)
+        {
+            rows.AddRange(_tree!.List(_folder).Select(ItemRow.FromArchive));
+        }
+        else if (_diskFolder.Length == 0)
+        {
+            rows.AddRange(DriveInfo.GetDrives().Select(ItemRow.FromDrive));
+        }
+        else
+        {
+            try
+            {
+                var dir = new DirectoryInfo(_diskFolder);
+                var options = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = System.IO.FileAttributes.Hidden | System.IO.FileAttributes.System };
+                rows.AddRange(dir.EnumerateDirectories("*", options).Select(ItemRow.FromFolder));
+                rows.AddRange(dir.EnumerateFiles("*", options).Select(ItemRow.FromFile));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                problem = ex.Message;
+            }
+        }
+
+        var filter = FilterBox.Text.Trim();
+        if (filter.Length > 0) rows = [.. rows.Where(r => r.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))];
+
+        Func<ItemRow, IComparable?> key = _sortKey switch
+        {
+            "size" => r => r.Size,
+            "modified" => r => r.Modified ?? DateTime.MinValue,
+            "type" => r => r.TypeText,
+            "crc" => r => r.Crc,
+            _ => r => r.Name.ToLowerInvariant(),
+        };
+        var folders = rows.Where(r => r.IsDirectory);
+        var files = rows.Where(r => !r.IsDirectory);
+        var sorted = (_sortDescending
+            ? folders.OrderByDescending(key).Concat(files.OrderByDescending(key))
+            : folders.OrderBy(key).Concat(files.OrderBy(key))).ToList();
+
+        var canGoUp = InArchive || _diskFolder.Length > 0;
+        if (canGoUp) sorted.Insert(0, ItemRow.Parent());
+
+        FileList.ItemsSource = sorted;
+        var empty = sorted.Count == (canGoUp ? 1 : 0);
+        EmptyFolderText.Visibility = empty || problem is not null ? Visibility.Visible : Visibility.Collapsed;
+        EmptyFolderText.Text = problem ?? (filter.Length > 0 ? "No matches" : "This folder is empty");
+
+        if (InArchive)
+        {
+            var archive = _reader!.ArchivePath;
+            TitleText.Text = $"{Path.GetFileName(archive)} - Stratum";
+            PathBox.Text = _folder.Length == 0 ? archive : archive + "\\" + _folder.Replace('/', '\\');
+        }
+        else
         {
             TitleText.Text = "Stratum";
+            PathBox.Text = _diskFolder.Length == 0 ? "This PC" : _diskFolder;
+        }
+        UpButton.IsEnabled = canGoUp;
+
+        var folderCount = sorted.Count(r => r.IsDirectory && r.Kind != RowKind.Parent);
+        var fileRows = sorted.Where(r => !r.IsDirectory).ToList();
+        TotalText.Text = $"Total {Plural(folderCount, "folder")} and {fileRows.Sum(r => r.Size):N0} bytes in {Plural(fileRows.Count, "file")}";
+
+        UpdateCommands();
+        UpdateStatus();
+    }
+
+    private static string Plural(int count, string noun) => $"{count:N0} {noun}{(count == 1 ? "" : "s")}";
+
+    private void UpdateStatus()
+    {
+        var selected = SelectedRows();
+        if (selected.Count > 0)
+        {
+            var bytes = selected.Where(r => !r.IsDirectory).Sum(r => r.Size);
+            StatusText.Text = $"Selected {Plural(selected.Count, "item")}, {bytes:N0} bytes";
+            return;
+        }
+
+        if (_reader is null)
+        {
             StatusText.Text = "";
             return;
         }
 
-        var name = Path.GetFileName(_reader!.ArchivePath);
-        TitleText.Text = $"{name} – Stratum";
-
-        IEnumerable<TreeItem> items = _tree!.List(_folder);
-        var filter = FilterBox.Text.Trim();
-        if (filter.Length > 0) items = items.Where(i => i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
-
-        Func<TreeItem, IComparable?> key = _sortKey switch
-        {
-            "size" => i => i.Size,
-            "modified" => i => i.Modified ?? DateTime.MinValue,
-            _ => i => i.Name.ToLowerInvariant(),
-        };
-        var folders = items.Where(i => i.IsDirectory);
-        var files = items.Where(i => !i.IsDirectory);
-        var sorted = _sortDescending
-            ? folders.OrderByDescending(key).Concat(files.OrderByDescending(key))
-            : folders.OrderBy(key).Concat(files.OrderBy(key));
-
-        var rows = sorted.Select(i => new ItemRow(i)).ToList();
-        FileList.ItemsSource = rows;
-        EmptyFolderText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyFolderText.Text = filter.Length > 0 ? "No matches" : "This folder is empty";
-
-        var crumbs = new List<string> { name };
-        if (_folder.Length > 0) crumbs.AddRange(_folder.Split('/'));
-        Crumbs.ItemsSource = crumbs;
-        UpButton.IsEnabled = _folder.Length > 0;
-
-        UpdateStatus();
-    }
-
-    private void UpdateStatus()
-    {
-        if (_reader is null) return;
-        var files = _reader.Entries.Count(e => !e.IsDirectory);
-        var ratio = _reader.UnpackedSize > 0 ? $" ({_reader.PackedSize * 100.0 / _reader.UnpackedSize:0}%)" : "";
-        var parts = new List<string>
-        {
-            $"{files:N0} {(files == 1 ? "file" : "files")}",
-            $"{Format.Size(_reader.UnpackedSize)} → {Format.Size(_reader.PackedSize)}{ratio}",
-            _reader.FormatName.ToUpperInvariant(),
-        };
+        var parts = new List<string> { $"{_reader.FormatName.ToUpperInvariant()} archive", $"unpacked size {_reader.UnpackedSize:N0} bytes" };
+        if (_reader.UnpackedSize > 0) parts.Add($"ratio {_reader.PackedSize * 100.0 / _reader.UnpackedSize:0}%");
         if (_reader.VolumeCount > 1) parts.Add($"{_reader.VolumeCount} volumes");
-        if (_reader.HasEncryptedEntries || _reader.HasPassword) parts.Add("Encrypted");
-        if (!CanModify && !Busy) parts.Add("Read-only");
-
-        var selected = FileList.SelectedItems.Count;
-        if (selected > 0) parts.Insert(0, $"{selected} selected");
-        StatusText.Text = string.Join("  ·  ", parts);
+        if (_reader.IsSolid) parts.Add("solid");
+        if (_reader.HasEncryptedEntries || _reader.HasPassword) parts.Add("encrypted");
+        if (!CanModify && !Busy) parts.Add("read-only");
+        StatusText.Text = string.Join(", ", parts);
     }
 
     private void UpdateCommands()
     {
-        var open = _reader is not null;
-        OpenButton.IsEnabled = !Busy;
-        NewButton.IsEnabled = !Busy;
-        ExtractButton.IsEnabled = open && !Busy;
-        TestButton.IsEnabled = open && !Busy;
-        AddButton.IsEnabled = CanModify;
-        DeleteButton.IsEnabled = CanModify && FileList.SelectedItems.Count > 0;
-        ExtractButton.Label = open && FileList.SelectedItems.Count > 0 ? "Extract selected" : "Extract";
+        var hasSelection = FileList.SelectedItems.OfType<ItemRow>().Any(r => r.Kind != RowKind.Parent);
+        SetEnabled(AddButton, !Busy);
+        SetEnabled(ExtractButton, !Busy);
+        SetEnabled(TestButton, !Busy);
+        SetEnabled(ViewButton, !Busy && hasSelection);
+        SetEnabled(DeleteButton, !Busy && hasSelection && (!InArchive || CanModify));
+        SetEnabled(FindButton, true);
+        SetEnabled(InfoButton, !Busy);
+        CloseArchiveItem.IsEnabled = InArchive && !Busy;
     }
 
-    private List<ItemRow> SelectedRows() => [.. FileList.SelectedItems.OfType<ItemRow>()];
-
-    private void NavigateTo(string folder)
+    /// <summary>The toolbar icons carry their own colours, so a disabled button is dimmed as a whole.</summary>
+    private static void SetEnabled(Button button, bool enabled)
     {
-        _folder = folder;
-        FilterBox.Text = "";
-        Refresh();
+        button.IsEnabled = enabled;
+        button.Opacity = enabled ? 1 : 0.4;
+    }
+
+    /// <summary>The selected rows, never including "..".</summary>
+    private List<ItemRow> SelectedRows() => [.. FileList.SelectedItems.OfType<ItemRow>().Where(r => r.Kind != RowKind.Parent)];
+
+    private void GoUp()
+    {
+        if (InArchive)
+        {
+            if (_folder.Length == 0)
+            {
+                CloseArchive();
+                return;
+            }
+            var slash = _folder.LastIndexOf('/');
+            _folder = slash < 0 ? "" : _folder[..slash];
+            FilterBox.Text = "";
+            Refresh();
+            return;
+        }
+
+        if (_diskFolder.Length == 0) return;
+        ShowDiskFolder(Directory.GetParent(_diskFolder.TrimEnd('\\'))?.FullName ?? "");
     }
 
     private void Up_Click(object sender, RoutedEventArgs e)
     {
-        if (_folder.Length == 0) return;
-        var slash = _folder.LastIndexOf('/');
-        NavigateTo(slash < 0 ? "" : _folder[..slash]);
+        if (!Busy) GoUp();
     }
 
-    private void Crumbs_ItemClicked(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
+    private void PathBox_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        var parts = _folder.Length == 0 ? [] : _folder.Split('/');
-        NavigateTo(string.Join('/', parts.Take(args.Index)));
+        if (e.Key != VirtualKey.Enter || Busy) return;
+        e.Handled = true;
+        var text = PathBox.Text.Trim().Trim('"');
+        if (text.Length == 0 || text.Equals("This PC", StringComparison.OrdinalIgnoreCase)) ShowDiskFolder("");
+        else if (Directory.Exists(text)) ShowDiskFolder(Path.GetFullPath(text));
+        else if (File.Exists(text)) Run(() => OpenArchiveAsync(text));
+        else
+        {
+            ShowNotice("That folder or archive doesn't exist.", InfoBarSeverity.Warning);
+            Refresh();
+        }
     }
 
     private void FilterBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
@@ -277,24 +381,19 @@ public sealed partial class MainWindow : Window
         if ((e.OriginalSource as FrameworkElement)?.DataContext is ItemRow row) Run(() => OpenRowAsync(row));
     }
 
-    private void ContextOpen_Click(object sender, RoutedEventArgs e)
-    {
-        if (SelectedRows().FirstOrDefault() is { } row) Run(() => OpenRowAsync(row));
-    }
-
     private void FileList_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         switch (e.Key)
         {
-            case Windows.System.VirtualKey.Enter when SelectedRows().FirstOrDefault() is { } row:
+            case VirtualKey.Enter when FileList.SelectedItem is ItemRow row:
                 e.Handled = true;
                 Run(() => OpenRowAsync(row));
                 break;
-            case Windows.System.VirtualKey.Back:
+            case VirtualKey.Back:
                 e.Handled = true;
                 Up_Click(sender, e);
                 break;
-            case Windows.System.VirtualKey.Delete when DeleteButton.IsEnabled:
+            case VirtualKey.Delete when DeleteButton.IsEnabled:
                 e.Handled = true;
                 Delete_Click(sender, e);
                 break;
@@ -311,8 +410,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         e.AcceptedOperation = DataPackageOperation.Copy;
-        DropText.Text = _reader is null ? "Drop to open or compress"
-            : CanModify ? "Drop to add to this archive" : "Drop to open or compress";
+        DropText.Text = CanModify ? "Drop to add to this archive" : "Drop to open or compress";
         DropOverlay.Opacity = 1;
     }
 
@@ -344,11 +442,14 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    /// <summary>Dragging rows out to Explorer: the files are extracted only if the drop actually happens.</summary>
+    /// <summary>
+    /// Dragging rows out to Explorer. Files on disk are handed over directly; items inside an
+    /// archive are extracted to a temp folder only if the drop actually happens.
+    /// </summary>
     private void FileList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
     {
-        var rows = e.Items.OfType<ItemRow>().ToList();
-        if (_reader is null || _tree is null || Busy || rows.Count == 0)
+        var rows = e.Items.OfType<ItemRow>().Where(r => r.Kind is RowKind.ArchiveItem or RowKind.File or RowKind.Folder).ToList();
+        if (Busy || rows.Count == 0)
         {
             e.Cancel = true;
             return;
@@ -356,12 +457,16 @@ public sealed partial class MainWindow : Window
 
         var reader = _reader;
         var folder = _folder;
-        var indexes = _tree.IndexesUnder(rows.Select(r => r.Item));
-        if (!reader.HasPassword && reader.Entries.Any(en => en.Encrypted && indexes.Contains(en.Index)))
+        IReadOnlyList<int> indexes = [];
+        if (InArchive)
         {
-            e.Cancel = true;
-            ShowNotice("These items are encrypted. Use Extract to enter the password.", InfoBarSeverity.Warning);
-            return;
+            indexes = _tree!.IndexesUnder(rows.Where(r => r.Item is not null).Select(r => r.Item!));
+            if (!reader!.HasPassword && reader.Entries.Any(en => en.Encrypted && indexes.Contains(en.Index)))
+            {
+                e.Cancel = true;
+                ShowNotice("These items are encrypted. Use Extract To to enter the password.", InfoBarSeverity.Warning);
+                return;
+            }
         }
 
         _internalDrag = true;
@@ -371,13 +476,21 @@ public sealed partial class MainWindow : Window
             var deferral = request.GetDeferral();
             try
             {
-                var temp = Path.Combine(_tempRoot, Guid.NewGuid().ToString("N")[..8]);
-                await reader.ExtractAsync(indexes, temp, folder);
+                var paths = new List<string>();
+                if (reader is not null && indexes.Count > 0)
+                {
+                    var temp = Path.Combine(_tempRoot, Guid.NewGuid().ToString("N")[..8]);
+                    await reader.ExtractAsync(indexes, temp, folder);
+                    paths.AddRange(rows.Select(r => Path.Combine(temp, r.Name)));
+                }
+                else
+                {
+                    paths.AddRange(rows.Where(r => r.DiskPath is not null).Select(r => r.DiskPath!));
+                }
 
                 var items = new List<IStorageItem>();
-                foreach (var row in rows)
+                foreach (var path in paths)
                 {
-                    var path = Path.Combine(temp, row.Name);
                     if (Directory.Exists(path)) items.Add(await StorageFolder.GetFolderFromPathAsync(path));
                     else if (File.Exists(path)) items.Add(await StorageFile.GetFileFromPathAsync(path));
                 }
@@ -396,7 +509,7 @@ public sealed partial class MainWindow : Window
 
     private void FileList_DragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args) => _internalDrag = false;
 
-    // ---------- settings ----------
+    // ---------- options ----------
 
     private void Theme_Click(object sender, RoutedEventArgs e)
     {
@@ -446,7 +559,7 @@ public sealed partial class MainWindow : Window
         "A modern archive manager for Windows.\n\n" +
         "Creates ZIP, 7Z and TAR. Opens those plus RAR and many other formats.\n\n" +
         "Compression is provided by the 7-Zip engine (7z.dll), © Igor Pavlov, licensed under the GNU LGPL " +
-        "with the unRAR restriction. Stratum is not affiliated with 7-Zip or with RARLAB."));
+        "with the unRAR restriction. Stratum is not affiliated with 7-Zip, RARLAB or WinRAR."));
 
     // ---------- helpers ----------
 

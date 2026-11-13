@@ -2,7 +2,9 @@
 
 A modern archive manager for Windows, built with WinUI 3 and the 7-Zip engine.
 
-![Stratum, dark theme](docs/screenshot-dark.png)
+![Stratum showing an archive, dark theme](docs/screenshot-dark.png)
+
+![Stratum browsing a folder, light theme](docs/screenshot-light.png)
 
 ## What it does
 
@@ -16,7 +18,8 @@ A modern archive manager for Windows, built with WinUI 3 and the 7-Zip engine.
 | **Integrity** | Test an archive for damage |
 | **Drag and drop** | Drop an archive to open it, drop files to compress or add them, drag items out to Explorer |
 | **Explorer** | Right-click menu: open, extract here, extract to a new folder, add to archive |
-| **Look** | Fluent design with Mica, light / dark / system theme |
+| **Look** | The classic archiver layout (menu bar, large toolbar, address bar, file list with `..`, status bar) in Fluent design with Mica and light / dark / system themes |
+| **File manager** | Browses folders and drives as well as archives, so you can pick files and press Add |
 
 RAR archives are extract-only. The RAR format is proprietary and its licence does not allow
 third-party tools to create RAR files.

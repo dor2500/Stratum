@@ -1,7 +1,11 @@
 namespace Stratum.Core;
 
 /// <summary>One row in the browser: a file, or a folder (which may exist only implicitly in entry paths).</summary>
-public sealed record TreeItem(string Name, string FullPath, bool IsDirectory, long Size, DateTime? Modified, bool Encrypted, int? EntryIndex);
+public sealed record TreeItem(string Name, string FullPath, bool IsDirectory, long Size, DateTime? Modified, bool Encrypted, int? EntryIndex)
+{
+    /// <summary>CRC-32 of the file, or 0 when the format does not store one.</summary>
+    public uint Crc { get; init; }
+}
 
 /// <summary>Folder view over the flat entry list of an archive.</summary>
 public sealed class ArchiveTree
@@ -27,7 +31,7 @@ public sealed class ArchiveTree
             var slash = rest.IndexOf('/');
             if (slash < 0 && !e.IsDirectory)
             {
-                files.Add(new TreeItem(rest, path, false, e.Size, e.Modified, e.Encrypted, e.Index));
+                files.Add(new TreeItem(rest, path, false, e.Size, e.Modified, e.Encrypted, e.Index) { Crc = e.Crc });
                 continue;
             }
 

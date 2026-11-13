@@ -132,7 +132,7 @@ internal sealed class Dialogs(FrameworkElement root, nint hwnd)
         foreach (var child in new UIElement[] { summary, name, folderRow, pair, password, confirm, hideNames, split, customMb, error })
             panel.Children.Add(child);
 
-        var dialog = NewDialog("New archive", new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, "Create");
+        var dialog = NewDialog("Archive name and parameters", new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, "Create");
         CreateRequest? result = null;
 
         dialog.PrimaryButtonClick += (_, args) =>
